@@ -14,6 +14,18 @@ pub struct Goal {
     pub predicate: Predicate,
 }
 
+impl Goal {
+    pub fn canonicalize(&mut self) -> usize {
+        let mut counter = 0;
+        let mut mapping = HashMap::new();
+
+        for term in &mut self.predicate.args {
+            term.canonicalize_internal(&mut counter, &mut mapping);
+        }
+
+        counter
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Clause {
     pub head: Predicate,
@@ -32,6 +44,29 @@ impl Clause {
         for goal in &mut self.body {
             for term in &mut goal.predicate.args {
                 term.canonicalize_internal(&mut counter, &mut mapping);
+            }
+        }
+    }
+
+    pub fn canonicalize_with_counter(&mut self, mut counter: usize) -> usize {
+        let mut mapping = HashMap::new();
+        self.canonicalize_internal(&mut counter, &mut mapping);
+
+        counter
+    }
+
+    fn canonicalize_internal(
+        &mut self,
+        counter: &mut usize,
+        mapping: &mut HashMap<usize, usize>,
+    ) {
+        for term in &mut self.head.args {
+            term.canonicalize_internal(counter, mapping);
+        }
+
+        for goal in &mut self.body {
+            for term in &mut goal.predicate.args {
+                term.canonicalize_internal(counter, mapping);
             }
         }
     }

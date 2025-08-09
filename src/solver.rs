@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 use enum_as_inner::EnumAsInner;
 
 use crate::{
-    clause::{Clause, Goal},
+    clause::{Goal, KnowledgeBase},
     subsitution::Substitution,
 };
 
@@ -19,7 +19,7 @@ enum ProofTreeNode {
 struct ProofTree {
     root: Goal,
     children: VecDeque<ProofTreeNode>,
-    substitution: Substitution,
+    is_in_cycle: bool,
 }
 
 impl ProofTreeNode {
@@ -42,25 +42,32 @@ impl ProofTreeNode {
 struct Solution {
     proof_tree: ProofTreeNode,
     leaf_count: usize,
+    substitution: Substitution,
 }
 
 /// A solver is a state-machine allowing the user to query for solutions to a
 /// particular goal
 pub struct Solver<'a> {
     work_list: VecDeque<Solution>,
-    clauses: &'a [Clause],
+    knowledge_base: &'a KnowledgeBase,
+    initial_counter: usize,
+    counter: usize,
 }
 
 impl<'a> Solver<'a> {
     /// Creates a new [`Solver`] that will search for solutions to the given
     /// [`Goal`].
-    pub fn new(goal: Goal, clauses: &'a [Clause]) -> Self {
+    pub fn new(mut goal: Goal, knowledge_base: &'a KnowledgeBase) -> Self {
         let mut work_list = VecDeque::new();
+        let counter = goal.canonicalize();
+
         work_list.push_back(Solution {
             proof_tree: ProofTreeNode::Leaf(goal),
             leaf_count: 1,
+            substitution: Substitution::default(),
         });
-        Self { work_list, clauses }
+
+        Self { work_list, knowledge_base, initial_counter: counter, counter }
     }
 
     /// Retrieves the next solution
@@ -72,13 +79,7 @@ impl<'a> Solver<'a> {
             let Some(goal) = goal else {
                 // proof tree has no more goal to prove, it means all the work
                 // to prove this solution is all done.
-                return Some(
-                    possible_solution
-                        .proof_tree
-                        .into_branch()
-                        .unwrap()
-                        .substitution,
-                );
+                return Some(possible_solution.substitution);
             };
         }
 
