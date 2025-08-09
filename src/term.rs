@@ -4,8 +4,24 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Term {
     Atom(String),
-    Variable(String),
+    Variable(usize),
     Compound(String, Vec<Term>),
+}
+
+impl Term {
+    #[must_use]
+    pub fn atom(name: impl Into<String>) -> Self { Term::Atom(name.into()) }
+
+    #[must_use]
+    pub fn variable(id: usize) -> Self { Term::Variable(id) }
+
+    #[must_use]
+    pub fn component(
+        name: impl Into<String>,
+        args: impl IntoIterator<Item = Term>,
+    ) -> Self {
+        Term::Compound(name.into(), args.into_iter().collect())
+    }
 }
 
 impl fmt::Display for Term {
