@@ -74,18 +74,17 @@ impl Clause {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct KnowledgeBase {
-    clauses_by_predicate_name: std::collections::HashMap<String, Vec<Clause>>,
+    clauses_by_predicate_name: HashMap<String, Vec<Clause>>,
 }
 
 impl KnowledgeBase {
     pub fn new() -> Self {
-        KnowledgeBase {
-            clauses_by_predicate_name: std::collections::HashMap::new(),
-        }
+        KnowledgeBase { clauses_by_predicate_name: HashMap::new() }
     }
 
     pub fn add_clause(&mut self, mut clause: Clause) {
         clause.canonicalize();
+
         self.clauses_by_predicate_name
             .entry(clause.head.predicate.clone())
             .or_default()
