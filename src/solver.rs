@@ -174,14 +174,14 @@ impl<'a> Solver<'a> {
             solution_id: solution_id.bump_id(),
         });
 
-        dbg!(Self {
+        Self {
             canonical_goal: goal,
             work_list,
             knowledge_base,
             initial_canonical_counter: counter,
             canonical_counter: counter,
             solution_id,
-        })
+        }
     }
 
     pub fn canonical_goal(&self) -> &Goal { &self.canonical_goal }
