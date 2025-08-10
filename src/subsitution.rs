@@ -28,6 +28,37 @@ impl Substitution {
         }
     }
 
+    fn compose_mapping_in_term(
+        term: &mut Term,
+        variable: usize,
+        term_to_insert: &Term,
+    ) {
+        match term {
+            Term::Variable(v) if *v == variable => {
+                *term = term_to_insert.clone();
+            }
+            Term::Compound(_, terms) => {
+                for subterm in terms {
+                    Self::compose_mapping_in_term(
+                        subterm,
+                        variable,
+                        term_to_insert,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn insert_mapping(&mut self, variable: usize, term: Term) {
+        // compose the existing mapping with the new term
+        for value in self.mapping.values_mut() {
+            Self::compose_mapping_in_term(value, variable, &term);
+        }
+
+        self.mapping.insert(variable, term);
+    }
+
     pub fn apply_predicate(&self, goal: &mut Predicate) {
         for term in goal.arguments.iter_mut() {
             self.apply_term(term);
@@ -51,7 +82,7 @@ impl Substitution {
                 if occurs_check(v, t) {
                     None
                 } else {
-                    self.mapping.insert(*v, t.clone());
+                    self.insert_mapping(*v, t.clone());
                     Some(self)
                 }
             }
