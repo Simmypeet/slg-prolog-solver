@@ -1,6 +1,6 @@
 //! Contains the solver state machine and its associated data structures
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 
 use enum_as_inner::EnumAsInner;
 
@@ -61,6 +61,9 @@ impl ProofTreeNode {
 
     fn check_cyclic(mut self: &mut Self, goal: &Goal) -> bool {
         let mut found_cyclic = false;
+        let mut goal = goal.clone();
+        goal.canonicalize();
+
         loop {
             match self {
                 ProofTreeNode::Leaf(_) => break found_cyclic,
@@ -70,7 +73,7 @@ impl ProofTreeNode {
                     if found_cyclic {
                         proof_tree.is_in_cycle = found_cyclic;
                     } else {
-                        found_cyclic = proof_tree.goal == *goal;
+                        found_cyclic = proof_tree.goal == goal;
                     }
 
                     let Some(next) = proof_tree.children.front_mut() else {
@@ -106,27 +109,6 @@ impl ProofTreeNode {
             }
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum SolutionState {
-    Working,
-    Done(Option<Substitution>),
-}
-
-/// Representing the state of a particular goal in the solver.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum State {
-    /// The goal is being worked on, and the solver is looking for solutions.
-    Working(HashMap<ID<Strand>, SolutionState>),
-
-    /// The goal has been successfully solved, it's either proven or disproven.
-    Result(Vec<Substitution>),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-struct Table {
-    entries: HashMap<Goal, State>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -230,6 +212,7 @@ impl<'a> Solver<'a> {
 
                 let mut head = x.head.clone();
                 next_substitution.apply_predicate(&mut head);
+                head.canonicalize();
 
                 let mut next_proof_tree_leaves = VecDeque::new();
 
