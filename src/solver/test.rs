@@ -380,9 +380,11 @@ fn inference_multiple_transitive_solution() {
     let solution1 = dbg!(solver.next_solution().unwrap());
     let solution2 = dbg!(solver.next_solution().unwrap());
     let solution3 = dbg!(solver.next_solution().unwrap());
+    // since `d` can be derived 2 ways, it's fine to see two `d`s
+    let solution4 = dbg!(solver.next_solution().unwrap());
     assert_eq!(solver.next_solution(), None);
 
-    let found_solutions = [solution1, solution2, solution3];
+    let found_solutions = [solution1, solution2, solution3, solution4];
 
     // Expected solutions: a is over b, c, and d
     let expected_solutions = [
