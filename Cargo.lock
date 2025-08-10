@@ -30,19 +30,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "prolog-solver"
-version = "0.1.0"
-dependencies = [
- "enum-as-inner",
-]
-
-[[package]]
 name = "quote"
 version = "1.0.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1885c039570dc00dcb4ff087a89e185fd56bae234ddc7f056a945bf36467248d"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "slg-prolog-solver"
+version = "0.1.0"
+dependencies = [
+ "enum-as-inner",
 ]
 
 [[package]]
