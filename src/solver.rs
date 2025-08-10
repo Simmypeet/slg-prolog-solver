@@ -15,11 +15,11 @@ enum ProofTreeNode {
     Leaf(Goal),
     Branch(ProofTree),
 }
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ProofTree {
     goal: Goal,
     children: VecDeque<ProofTreeNode>,
+    is_in_cycle: bool,
 }
 
 impl ProofTreeNode {
@@ -27,14 +27,62 @@ impl ProofTreeNode {
     ///
     /// The returned goal is what the solver picked so that it has something to
     /// do.
-    fn next_goal_leaf(mut self: &Self) -> Option<(&Goal, Vec<&Goal>)> {
-        let mut stack = Vec::new();
+    fn next_goal_leaf(mut self: &Self) -> Option<&Goal> {
         loop {
             match self {
-                ProofTreeNode::Leaf(goal) => break Some((goal, stack)),
+                ProofTreeNode::Leaf(goal) => break Some(goal),
                 ProofTreeNode::Branch(proof_tree) => {
-                    stack.push(&proof_tree.goal);
                     self = proof_tree.children.front()?;
+                }
+            }
+        }
+    }
+
+    fn check_cyclic(mut self: &mut Self, goal: &Goal) -> bool {
+        let mut found_cyclic = false;
+        loop {
+            match self {
+                ProofTreeNode::Leaf(_) => break found_cyclic,
+
+                ProofTreeNode::Branch(proof_tree) => {
+                    // check if found the cycle
+                    if found_cyclic {
+                        proof_tree.is_in_cycle = found_cyclic;
+                    } else {
+                        found_cyclic = proof_tree.goal == *goal;
+                    }
+
+                    let Some(next) = proof_tree.children.front_mut() else {
+                        return found_cyclic;
+                    };
+
+                    self = next;
+                }
+            }
+        }
+    }
+
+    fn progress(
+        mut self: &mut Self,
+        new_head: Goal,
+        new_work_leaves: VecDeque<ProofTreeNode>,
+    ) {
+        loop {
+            match self {
+                ProofTreeNode::Leaf(_) => {
+                    *self = ProofTreeNode::Branch(ProofTree {
+                        goal: new_head,
+                        children: new_work_leaves,
+                        is_in_cycle: false,
+                    });
+
+                    break;
+                }
+                ProofTreeNode::Branch(proof_tree) => {
+                    self = proof_tree
+                        .children
+                        .front_mut()
+                        .expect("should have next goal");
                 }
             }
         }
@@ -51,7 +99,7 @@ enum SolutionState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum State {
     /// The goal is being worked on, and the solver is looking for solutions.
-    Working(HashMap<ID<Solution>, SolutionState>),
+    Working(HashMap<ID<Strand>, SolutionState>),
 
     /// The goal has been successfully solved, it's either proven or disproven.
     Result(Vec<Substitution>),
@@ -63,26 +111,23 @@ struct Table {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Solution {
+struct Strand {
     proof_tree: ProofTreeNode,
     leaf_count: usize,
     substitution: Substitution,
-    solution_id: ID<Solution>,
+    solution_id: ID<Strand>,
 }
 
 /// A solver is a state-machine allowing the user to query for solutions to a
 /// particular goal
 #[derive(Debug, Clone)]
 pub struct Solver<'a> {
-    work_list: VecDeque<Solution>,
+    work_list: VecDeque<Strand>,
     knowledge_base: &'a KnowledgeBase,
 
-    initial_canonical_counter: usize,
     canonical_counter: usize,
 
-    solution_id: ID<Solution>,
-
-    table: Table,
+    solution_id: ID<Strand>,
 }
 
 impl<'a> Solver<'a> {
@@ -93,7 +138,7 @@ impl<'a> Solver<'a> {
         let counter = goal.canonicalize();
         let mut solution_id = ID::default();
 
-        work_list.push_back(Solution {
+        work_list.push_back(Strand {
             proof_tree: ProofTreeNode::Leaf(goal),
             leaf_count: 1,
             substitution: Substitution::default(),
@@ -103,33 +148,81 @@ impl<'a> Solver<'a> {
         Self {
             work_list,
             knowledge_base,
-            initial_canonical_counter: counter,
             canonical_counter: counter,
             solution_id,
-            table: Table::default(),
         }
     }
 
     /// Retrieves the next solution
     pub fn next_solution(&mut self) -> Option<Substitution> {
-        while let Some(possible_solution) = self.work_list.pop_front() {
-            let goal = possible_solution.proof_tree.next_goal_leaf();
+        while let Some(mut strand) = self.work_list.pop_front() {
+            let goal = strand.proof_tree.next_goal_leaf().cloned();
 
-            // obtain the goal that will be proven in this solution
-            let Some((goal, stack)) = goal else {
-                // proof tree has no more goal to prove, it means all the work
-                // to prove this solution is all done.
-                return Some(possible_solution.substitution);
+            // If proof tree has no more goal to prove, return the substitution
+            let Some(goal) = goal else {
+                return Some(strand.substitution);
             };
 
-            let result = if let Some(state) = self.table.entries.get(goal) {
-                match state {
-                    State::Working(hash_map) => todo!(),
-                    State::Result(substitutions) => todo!(),
+            let has_cycle = strand.proof_tree.check_cyclic(&goal);
+
+            // If proof tree has a cycle, we skip this strand
+            if has_cycle {
+                continue;
+            }
+
+            // these are the new strands that will be added to the work list.
+            // if multiple strands are created, it means that this goal can have
+            // multiple solutions. if no new strands are created, it means that
+            // this goal has no solutions.
+            let mut new_strands = Vec::new();
+
+            let clauses = self.knowledge_base.get_clauses(&goal.predicate.name);
+
+            for x in clauses.into_iter().flatten() {
+                // rename all the variables in the clause
+                self.canonical_counter =
+                    x.clone().canonicalize_with_counter(self.canonical_counter);
+
+                let Some(next_substitution) = strand
+                    .substitution
+                    .clone()
+                    .unify_predicate(&goal.predicate, &x.head)
+                else {
+                    continue;
+                };
+
+                let mut head = x.head.clone();
+                next_substitution.apply_predicate(&mut head);
+
+                let mut next_proof_tree_leaves = VecDeque::new();
+
+                for mut body in x.body.iter().cloned() {
+                    next_substitution.apply_predicate(&mut body.predicate);
+                    next_proof_tree_leaves.push_back(ProofTreeNode::Leaf(body));
                 }
-            } else {
-                todo!()
-            };
+
+                new_strands.push((head, next_proof_tree_leaves));
+            }
+
+            // handle each strand
+            for (i, (head, next_proof_tree_leaves)) in
+                new_strands.into_iter().enumerate()
+            {
+                let mut next_strand = strand.clone();
+
+                next_strand.leaf_count -= 1;
+                next_strand.leaf_count += next_proof_tree_leaves.len();
+
+                next_strand
+                    .proof_tree
+                    .progress(Goal { predicate: head }, next_proof_tree_leaves);
+
+                if i != 0 {
+                    next_strand.solution_id = self.solution_id.bump_id();
+                }
+
+                self.work_list.push_back(next_strand);
+            }
         }
 
         None

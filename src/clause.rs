@@ -4,13 +4,12 @@ use crate::term::Term;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Predicate {
-    pub predicate: String,
-    pub args: Vec<Term>,
+    pub name: String,
+    pub arguments: Vec<Term>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Goal {
-    pub polar: bool,
     pub predicate: Predicate,
 }
 
@@ -19,7 +18,7 @@ impl Goal {
         let mut counter = 0;
         let mut mapping = HashMap::new();
 
-        for term in &mut self.predicate.args {
+        for term in &mut self.predicate.arguments {
             term.canonicalize_internal(&mut counter, &mut mapping);
         }
 
@@ -37,12 +36,12 @@ impl Clause {
         let mut counter = 0;
         let mut mapping = HashMap::new();
 
-        for term in &mut self.head.args {
+        for term in &mut self.head.arguments {
             term.canonicalize_internal(&mut counter, &mut mapping);
         }
 
         for goal in &mut self.body {
-            for term in &mut goal.predicate.args {
+            for term in &mut goal.predicate.arguments {
                 term.canonicalize_internal(&mut counter, &mut mapping);
             }
         }
@@ -60,12 +59,12 @@ impl Clause {
         counter: &mut usize,
         mapping: &mut HashMap<usize, usize>,
     ) {
-        for term in &mut self.head.args {
+        for term in &mut self.head.arguments {
             term.canonicalize_internal(counter, mapping);
         }
 
         for goal in &mut self.body {
-            for term in &mut goal.predicate.args {
+            for term in &mut goal.predicate.arguments {
                 term.canonicalize_internal(counter, mapping);
             }
         }
@@ -78,6 +77,10 @@ pub struct KnowledgeBase {
 }
 
 impl KnowledgeBase {
+    /// Returns clauses for a given predicate name
+    pub fn get_clauses(&self, predicate_name: &str) -> Option<&Vec<Clause>> {
+        self.clauses_by_predicate_name.get(predicate_name)
+    }
     pub fn new() -> Self {
         KnowledgeBase { clauses_by_predicate_name: HashMap::new() }
     }
@@ -86,7 +89,7 @@ impl KnowledgeBase {
         clause.canonicalize();
 
         self.clauses_by_predicate_name
-            .entry(clause.head.predicate.clone())
+            .entry(clause.head.name.clone())
             .or_default()
             .push(clause);
     }
