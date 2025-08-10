@@ -79,10 +79,31 @@ impl ProofTreeNode {
                     break;
                 }
                 ProofTreeNode::Branch(proof_tree) => {
-                    self = proof_tree
+                    let next = proof_tree
                         .children
-                        .front_mut()
-                        .expect("should have next goal");
+                        .front()
+                        .expect("should have some work");
+
+                    // this is the goal we want to replace
+                    if next.is_leaf() {
+                        if new_work_leaves.is_empty() {
+                            // simply pop from the tree
+                            proof_tree.children.pop_front();
+                            return;
+                        } else {
+                            *proof_tree.children.front_mut().unwrap() =
+                                ProofTreeNode::Branch(ProofTree {
+                                    goal: new_head,
+                                    children: new_work_leaves,
+                                    is_in_cycle: false,
+                                });
+
+                            return;
+                        }
+                    }
+
+                    // otherwise, we need to go deeper
+                    self = proof_tree.children.front_mut().unwrap();
                 }
             }
         }
@@ -132,6 +153,12 @@ pub struct Solver<'a> {
     solution_id: ID<Strand>,
 }
 
+impl Iterator for Solver<'_> {
+    type Item = Substitution;
+
+    fn next(&mut self) -> Option<Self::Item> { self.next_solution() }
+}
+
 impl<'a> Solver<'a> {
     /// Creates a new [`Solver`] that will search for solutions to the given
     /// [`Goal`].
@@ -147,14 +174,14 @@ impl<'a> Solver<'a> {
             solution_id: solution_id.bump_id(),
         });
 
-        Self {
+        dbg!(Self {
             canonical_goal: goal,
             work_list,
             knowledge_base,
             initial_canonical_counter: counter,
             canonical_counter: counter,
             solution_id,
-        }
+        })
     }
 
     pub fn canonical_goal(&self) -> &Goal { &self.canonical_goal }
@@ -189,10 +216,10 @@ impl<'a> Solver<'a> {
 
             let clauses = self.knowledge_base.get_clauses(&goal.predicate.name);
 
-            for x in clauses.into_iter().flatten() {
+            for mut x in clauses.into_iter().flatten().cloned() {
                 // rename all the variables in the clause
                 self.canonical_counter =
-                    x.clone().canonicalize_with_counter(self.canonical_counter);
+                    x.canonicalize_with_counter(self.canonical_counter);
 
                 let Some(next_substitution) = strand
                     .substitution
