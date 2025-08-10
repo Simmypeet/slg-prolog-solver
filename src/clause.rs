@@ -113,7 +113,7 @@ impl Term {
         mapping: &mut HashMap<usize, usize>,
     ) {
         match self {
-            Term::Atom(_) => todo!(),
+            Term::Atom(_) => {}
             Term::Variable(id) => {
                 if let Some(new_id) = mapping.get(id) {
                     *id = *new_id;

@@ -126,6 +126,7 @@ pub struct Solver<'a> {
     knowledge_base: &'a KnowledgeBase,
 
     canonical_counter: usize,
+    initial_canonical_counter: usize,
 
     solution_id: ID<Strand>,
 }
@@ -148,6 +149,7 @@ impl<'a> Solver<'a> {
         Self {
             work_list,
             knowledge_base,
+            initial_canonical_counter: counter,
             canonical_counter: counter,
             solution_id,
         }
@@ -160,6 +162,11 @@ impl<'a> Solver<'a> {
 
             // If proof tree has no more goal to prove, return the substitution
             let Some(goal) = goal else {
+                strand
+                    .substitution
+                    .mapping
+                    .retain(|&x, _| x < self.initial_canonical_counter);
+
                 return Some(strand.substitution);
             };
 
@@ -201,17 +208,22 @@ impl<'a> Solver<'a> {
                     next_proof_tree_leaves.push_back(ProofTreeNode::Leaf(body));
                 }
 
-                new_strands.push((head, next_proof_tree_leaves));
+                new_strands.push((
+                    head,
+                    next_proof_tree_leaves,
+                    next_substitution,
+                ));
             }
 
             // handle each strand
-            for (i, (head, next_proof_tree_leaves)) in
+            for (i, (head, next_proof_tree_leaves, substitution)) in
                 new_strands.into_iter().enumerate()
             {
                 let mut next_strand = strand.clone();
 
                 next_strand.leaf_count -= 1;
                 next_strand.leaf_count += next_proof_tree_leaves.len();
+                next_strand.substitution = substitution;
 
                 next_strand
                     .proof_tree
@@ -228,3 +240,6 @@ impl<'a> Solver<'a> {
         None
     }
 }
+
+#[cfg(test)]
+mod test;
