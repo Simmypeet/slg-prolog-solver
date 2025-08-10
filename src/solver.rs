@@ -122,6 +122,7 @@ struct Strand {
 /// particular goal
 #[derive(Debug, Clone)]
 pub struct Solver<'a> {
+    canonical_goal: Goal,
     work_list: VecDeque<Strand>,
     knowledge_base: &'a KnowledgeBase,
 
@@ -140,13 +141,14 @@ impl<'a> Solver<'a> {
         let mut solution_id = ID::default();
 
         work_list.push_back(Strand {
-            proof_tree: ProofTreeNode::Leaf(goal),
+            proof_tree: ProofTreeNode::Leaf(goal.clone()),
             leaf_count: 1,
             substitution: Substitution::default(),
             solution_id: solution_id.bump_id(),
         });
 
         Self {
+            canonical_goal: goal,
             work_list,
             knowledge_base,
             initial_canonical_counter: counter,
@@ -154,6 +156,8 @@ impl<'a> Solver<'a> {
             solution_id,
         }
     }
+
+    pub fn canonical_goal(&self) -> &Goal { &self.canonical_goal }
 
     /// Retrieves the next solution
     pub fn next_solution(&mut self) -> Option<Substitution> {
