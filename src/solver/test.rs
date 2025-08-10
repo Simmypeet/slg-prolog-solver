@@ -152,7 +152,7 @@ fn inference_multiple_solution() {
 }
 
 #[test]
-fn inference_multiple_transitive_solution() {
+fn inference_multiple_nested_solution() {
     // facts:
     // parent(bob, alice).
     // parent(alice, dave).
@@ -302,4 +302,100 @@ fn no_solution() {
     let mut solver = Solver::new(goal, &kb);
     let solution = solver.next_solution();
     assert!(solution.is_none());
+}
+
+#[test]
+fn inference_multiple_transitive_solution() {
+    // facts:
+    // over(a, b).
+    // over(b, c).
+    // over(c, d).
+    //
+    // over(?0, ?1) :- over(?0, ?2), over(?2, ?1).
+
+    // what's over `a`, the solution should be 'b', 'c', 'd'
+
+    // Create facts
+    let fact1 = Clause {
+        head: Predicate {
+            name: "over".to_string(),
+            arguments: vec![Term::atom("a"), Term::atom("b")],
+        },
+        body: vec![],
+    };
+    let fact2 = Clause {
+        head: Predicate {
+            name: "over".to_string(),
+            arguments: vec![Term::atom("b"), Term::atom("c")],
+        },
+        body: vec![],
+    };
+    let fact3 = Clause {
+        head: Predicate {
+            name: "over".to_string(),
+            arguments: vec![Term::atom("c"), Term::atom("d")],
+        },
+        body: vec![],
+    };
+
+    // Create transitive rule: over(?0, ?1) :- over(?0, ?2), over(?2, ?1).
+    let transitive_rule = Clause {
+        head: Predicate {
+            name: "over".to_string(),
+            arguments: vec![Term::variable(0), Term::variable(1)],
+        },
+        body: vec![
+            Goal {
+                predicate: Predicate {
+                    name: "over".to_string(),
+                    arguments: vec![Term::variable(0), Term::variable(2)],
+                },
+            },
+            Goal {
+                predicate: Predicate {
+                    name: "over".to_string(),
+                    arguments: vec![Term::variable(2), Term::variable(1)],
+                },
+            },
+        ],
+    };
+
+    let mut kb = KnowledgeBase::new();
+    kb.add_clause(fact1);
+    kb.add_clause(fact2);
+    kb.add_clause(fact3);
+    kb.add_clause(transitive_rule);
+
+    // Query: over(a, ?1) - what is over `a`?
+    let query = Goal {
+        predicate: Predicate {
+            name: "over".to_string(),
+            arguments: vec![Term::atom("a"), Term::variable(1)],
+        },
+    };
+
+    let mut solver = Solver::new(query.clone(), &kb);
+
+    // Collect all solutions
+    let solution1 = dbg!(solver.next_solution().unwrap());
+    let solution2 = dbg!(solver.next_solution().unwrap());
+    let solution3 = dbg!(solver.next_solution().unwrap());
+    assert_eq!(solver.next_solution(), None);
+
+    let found_solutions = [solution1, solution2, solution3];
+
+    // Expected solutions: a is over b, c, and d
+    let expected_solutions = [
+        Substitution { mapping: [(1, Term::atom("b"))].into_iter().collect() },
+        Substitution { mapping: [(1, Term::atom("c"))].into_iter().collect() },
+        Substitution { mapping: [(1, Term::atom("d"))].into_iter().collect() },
+    ];
+
+    // Verify all expected solutions are present
+    for expected in &expected_solutions {
+        assert!(
+            found_solutions.contains(expected),
+            "Missing expected solution: {expected:?}"
+        );
+    }
 }

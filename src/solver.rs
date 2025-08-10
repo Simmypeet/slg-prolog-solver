@@ -23,10 +23,31 @@ struct ProofTree {
 }
 
 impl ProofTreeNode {
-    /// Returns the left-most [`Goal`] leaf in the proof tree node.
-    ///
-    /// The returned goal is what the solver picked so that it has something to
-    /// do.
+    fn purge_empty_tree(&mut self) -> bool {
+        match self {
+            ProofTreeNode::Leaf(_) => false,
+            ProofTreeNode::Branch(proof_tree) => {
+                if proof_tree.children.is_empty() {
+                    return true;
+                }
+
+                // purge the left-most child
+                loop {
+                    if let Some(next_front) = proof_tree.children.front_mut() {
+                        if next_front.purge_empty_tree() {
+                            proof_tree.children.pop_front();
+                            continue;
+                        }
+                    }
+
+                    break;
+                }
+
+                // if the branch is empty, we return true
+                proof_tree.children.is_empty()
+            }
+        }
+    }
     fn next_goal_leaf(mut self: &Self) -> Option<&Goal> {
         loop {
             match self {
@@ -79,29 +100,6 @@ impl ProofTreeNode {
                     break;
                 }
                 ProofTreeNode::Branch(proof_tree) => {
-                    let next = proof_tree
-                        .children
-                        .front()
-                        .expect("should have some work");
-
-                    // this is the goal we want to replace
-                    if next.is_leaf() {
-                        if new_work_leaves.is_empty() {
-                            // simply pop from the tree
-                            proof_tree.children.pop_front();
-                            return;
-                        } else {
-                            *proof_tree.children.front_mut().unwrap() =
-                                ProofTreeNode::Branch(ProofTree {
-                                    goal: new_head,
-                                    children: new_work_leaves,
-                                    is_in_cycle: false,
-                                });
-
-                            return;
-                        }
-                    }
-
                     // otherwise, we need to go deeper
                     self = proof_tree.children.front_mut().unwrap();
                 }
@@ -189,6 +187,7 @@ impl<'a> Solver<'a> {
     /// Retrieves the next solution
     pub fn next_solution(&mut self) -> Option<Substitution> {
         while let Some(mut strand) = self.work_list.pop_front() {
+            strand.proof_tree.purge_empty_tree();
             let goal = strand.proof_tree.next_goal_leaf().cloned();
 
             // If proof tree has no more goal to prove, return the substitution
@@ -204,7 +203,7 @@ impl<'a> Solver<'a> {
             let has_cycle = strand.proof_tree.check_cyclic(&goal);
 
             // If proof tree has a cycle, we skip this strand
-            if has_cycle {
+            if has_cycle || strand.leaf_count >= 128 {
                 continue;
             }
 
