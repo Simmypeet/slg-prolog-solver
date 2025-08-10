@@ -373,4 +373,91 @@ fn recursive_query() {
     assert!(solution1.mapping.is_empty());
 }
 
+#[test]
+fn inference_recursive_query() {
+    // Create facts
+    let fact1 = Clause {
+        head: Predicate {
+            name: "over".to_string(),
+            arguments: vec![Term::atom("a"), Term::atom("b")],
+        },
+        body: vec![],
+    };
+    let fact2 = Clause {
+        head: Predicate {
+            name: "over".to_string(),
+            arguments: vec![Term::atom("b"), Term::atom("c")],
+        },
+        body: vec![],
+    };
+    let fact3 = Clause {
+        head: Predicate {
+            name: "over".to_string(),
+            arguments: vec![Term::atom("c"), Term::atom("d")],
+        },
+        body: vec![],
+    };
+
+    // Create transitive rule: over(?0, ?1) :- over(?0, ?2), over(?2, ?1).
+    let transitive_rule = Clause {
+        head: Predicate {
+            name: "over".to_string(),
+            arguments: vec![Term::variable(0), Term::variable(1)],
+        },
+        body: vec![
+            Goal {
+                predicate: Predicate {
+                    name: "over".to_string(),
+                    arguments: vec![Term::variable(0), Term::variable(2)],
+                },
+            },
+            Goal {
+                predicate: Predicate {
+                    name: "over".to_string(),
+                    arguments: vec![Term::variable(2), Term::variable(1)],
+                },
+            },
+        ],
+    };
+
+    let mut kb = KnowledgeBase::new();
+    kb.add_clause(fact1);
+    kb.add_clause(fact2);
+    kb.add_clause(fact3);
+    kb.add_clause(transitive_rule);
+
+    // Query: over(a, ?0) - should return solutions where ?0 = b, c, d
+    let query = Goal {
+        predicate: Predicate {
+            name: "over".to_string(),
+            arguments: vec![Term::atom("a"), Term::variable(0)],
+        },
+    };
+
+    let mut solver = Solver::new(query, &kb);
+
+    // Collect all solutions
+    let mut solutions = Vec::new();
+    while let Some(solution) = solver.next_solution() {
+        solutions.push(solution);
+    }
+
+    dbg!(&solutions);
+
+    // Should have 3 solutions: ?0 = b, c, d
+    assert_eq!(solutions.len(), 3);
+
+    let expected_solutions = [
+        Substitution { mapping: [(0, Term::atom("b"))].into_iter().collect() },
+        Substitution { mapping: [(0, Term::atom("c"))].into_iter().collect() },
+        Substitution { mapping: [(0, Term::atom("d"))].into_iter().collect() },
+    ];
+
+    // Check that all expected solutions are present
+    for expected in &expected_solutions {
+        assert!(
+            solutions.contains(expected),
+            "Missing expected solution: {expected:?}"
+        );
+    }
 }
