@@ -8,23 +8,28 @@ pub struct Predicate {
     pub arguments: Vec<Term>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Goal {
-    pub predicate: Predicate,
-}
-
-impl Goal {
+impl Predicate {
     pub fn canonicalize(&mut self) -> usize {
         let mut counter = 0;
         let mut mapping = HashMap::new();
 
-        for term in &mut self.predicate.arguments {
+        for term in &mut self.arguments {
             term.canonicalize_internal(&mut counter, &mut mapping);
         }
 
         counter
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Goal {
+    pub predicate: Predicate,
+}
+
+impl Goal {
+    pub fn canonicalize(&mut self) -> usize { self.predicate.canonicalize() }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Clause {
     pub head: Predicate,
