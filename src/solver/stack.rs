@@ -13,6 +13,8 @@ impl Stack {
     pub fn push(&mut self, table: ID<Table>) {
         self.stack.push(Entry { table });
     }
+
+    pub fn pop(&mut self) -> Option<Entry> { self.stack.pop() }
 }
 
 impl Stack {

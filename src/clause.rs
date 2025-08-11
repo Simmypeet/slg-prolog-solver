@@ -8,74 +8,15 @@ pub struct Predicate {
     pub arguments: Vec<Term>,
 }
 
-impl Predicate {
-    pub fn canonicalize(&mut self) -> HashMap<usize, usize> {
-        let mut counter = 0;
-        let mut mapping = HashMap::new();
-
-        for term in &mut self.arguments {
-            term.canonicalize_internal(&mut counter, &mut mapping);
-        }
-
-        mapping
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Goal {
     pub predicate: Predicate,
-}
-
-impl Goal {
-    pub fn canonicalize(&mut self) -> HashMap<usize, usize> {
-        self.predicate.canonicalize()
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Clause {
     pub head: Predicate,
     pub body: Vec<Goal>,
-}
-
-impl Clause {
-    pub fn canonicalize(&mut self) {
-        let mut counter = 0;
-        let mut mapping = HashMap::new();
-
-        for term in &mut self.head.arguments {
-            term.canonicalize_internal(&mut counter, &mut mapping);
-        }
-
-        for goal in &mut self.body {
-            for term in &mut goal.predicate.arguments {
-                term.canonicalize_internal(&mut counter, &mut mapping);
-            }
-        }
-    }
-
-    pub fn canonicalize_with_counter(&mut self, mut counter: usize) -> usize {
-        let mut mapping = HashMap::new();
-        self.canonicalize_internal(&mut counter, &mut mapping);
-
-        counter
-    }
-
-    fn canonicalize_internal(
-        &mut self,
-        counter: &mut usize,
-        mapping: &mut HashMap<usize, usize>,
-    ) {
-        for term in &mut self.head.arguments {
-            term.canonicalize_internal(counter, mapping);
-        }
-
-        for goal in &mut self.body {
-            for term in &mut goal.predicate.arguments {
-                term.canonicalize_internal(counter, mapping);
-            }
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -99,43 +40,5 @@ impl KnowledgeBase {
             .entry(clause.head.name.clone())
             .or_default()
             .push(clause);
-    }
-}
-
-impl Term {
-    pub fn canonicalize(&mut self) -> usize {
-        self.canonicalize_with_counter(0)
-    }
-
-    pub fn canonicalize_with_counter(&mut self, mut counter: usize) -> usize {
-        let mut mapping = HashMap::new();
-        self.canonicalize_internal(&mut counter, &mut mapping);
-
-        counter
-    }
-
-    fn canonicalize_internal(
-        &mut self,
-        counter: &mut usize,
-        mapping: &mut HashMap<usize, usize>,
-    ) {
-        match self {
-            Term::Atom(_) => {}
-            Term::Variable(id) => {
-                if let Some(new_id) = mapping.get(id) {
-                    *id = *new_id;
-                } else {
-                    let new_id = *counter;
-                    mapping.insert(*id, new_id);
-                    *id = new_id;
-                    *counter += 1;
-                }
-            }
-            Term::Compound(_, terms) => {
-                for term in terms {
-                    term.canonicalize_internal(counter, mapping);
-                }
-            }
-        }
     }
 }

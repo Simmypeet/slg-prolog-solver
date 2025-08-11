@@ -15,9 +15,16 @@
 //! prove a goal", and "there are subgoals to prove a particular answer", define
 //! the structure of the SLG table.
 
+use std::collections::HashMap;
+
 use crate::{
+    arena::ID,
+    canonicalize::{reverse_mapping, uncanonicalize_substitution},
     clause::{Goal, KnowledgeBase},
-    solver::{stack::Stack, table::Tables},
+    solver::{
+        stack::Stack,
+        table::{EnsureAnswer, Table, Tables},
+    },
     substitution::Substitution,
 };
 
@@ -28,34 +35,59 @@ pub mod table;
 /// particular goal
 #[derive(Debug, Clone)]
 pub struct Solver<'a> {
-    canonical_goal: Goal,
     knowledge_base: &'a KnowledgeBase,
     tables: Tables,
     stack: Stack,
 }
 
-impl Iterator for Solver<'_> {
-    type Item = Substitution;
-
-    fn next(&mut self) -> Option<Self::Item> { self.next_solution() }
-}
-
 impl<'a> Solver<'a> {
     /// Creates a new [`Solver`] that will search for solutions to the given
     /// [`Goal`].
-    pub fn new(goal: Goal, knowledge_base: &'a KnowledgeBase) -> Self {
-        Self {
-            canonical_goal: goal,
-            knowledge_base,
-            tables: Tables::new(),
-            stack: Stack::new(),
-        }
+    pub fn new(knowledge_base: &'a KnowledgeBase) -> Self {
+        Self { knowledge_base, tables: Tables::new(), stack: Stack::new() }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GoalState {
+    answer_index: usize,
+    table_id: ID<Table>,
+    canonical_mapping: HashMap<usize, usize>,
+}
+
+impl Solver<'_> {
+    pub fn create_goal_state(&mut self, mut goal: Goal) -> GoalState {
+        let mapping = goal.canonicalize();
+        let mapping = reverse_mapping(&mapping);
+
+        let table_id = self.get_table_id(&goal);
+
+        GoalState { answer_index: 0, table_id, canonical_mapping: mapping }
     }
 
-    pub fn canonical_goal(&self) -> &Goal { &self.canonical_goal }
+    pub fn pull_next_goal(
+        &mut self,
+        goal_state: &mut GoalState,
+    ) -> Option<Substitution> {
+        // make sure the answer we're interested is present
+        let Ok(EnsureAnswer::AnswerAvailable) =
+            self.ensure_answer(goal_state.table_id, goal_state.answer_index)
+        else {
+            return None;
+        };
 
-    /// Retrieves the next solution
-    pub fn next_solution(&mut self) -> Option<Substitution> { todo!() }
+        // retrieve the answer and increment the counter for the next pull
+        let substitution = self
+            .get_answer(goal_state.table_id, goal_state.answer_index)
+            .unwrap();
+
+        goal_state.answer_index += 1;
+
+        Some(uncanonicalize_substitution(
+            substitution,
+            &goal_state.canonical_mapping,
+        ))
+    }
 }
 
 #[cfg(test)]

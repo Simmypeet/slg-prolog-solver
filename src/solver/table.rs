@@ -2,10 +2,10 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::{
     arena::{Arena, ID},
+    canonicalize::{reverse_mapping, uncanonicalize_substitution},
     clause::{Goal, KnowledgeBase},
-    solver::Solver,
+    solver::{GoalState, Solver},
     substitution::Substitution,
-    term::Term,
 };
 
 /// Manages the SLG tables for the solver.
@@ -24,12 +24,12 @@ impl Tables {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum EnsureAnswer {
+pub(super) enum EnsureAnswer {
     AnswerAvailable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum Error {
+pub(super) enum Error {
     NoMoreSolutions,
     CyclicDependency,
 }
@@ -46,10 +46,10 @@ enum PullAnswerFromStrand {
 
 impl Solver<'_> {
     /// Gets an ID to the table for the given goal.
-    ///
-    /// The [`Goal`] is allowed to be non-canonicalized, the function will
-    /// ensure that the goal is canonicalized before looking it up.
-    fn get_table_id(&mut self, canonicalized_goal: &Goal) -> ID<Table> {
+    pub(super) fn get_table_id(
+        &mut self,
+        canonicalized_goal: &Goal,
+    ) -> ID<Table> {
         if let Some(table_id) =
             self.tables.table_ids_by_goal.get(canonicalized_goal)
         {
@@ -65,7 +65,18 @@ impl Solver<'_> {
         id
     }
 
-    fn ensure_answer(
+    pub(super) fn get_answer(
+        &self,
+        table_id: ID<Table>,
+        answer_index: usize,
+    ) -> Option<&Substitution> {
+        self.tables
+            .tables
+            .get(table_id)
+            .and_then(|table| table.answers.get(answer_index))
+    }
+
+    pub(super) fn ensure_answer(
         &mut self,
         table_id: ID<Table>,
         answer_index: usize,
@@ -89,7 +100,12 @@ impl Solver<'_> {
 
         self.stack.push(table_id);
 
-        todo!()
+        // pull the next answer from the strand
+        let result = self.pull_next_answer(table_id);
+
+        self.stack.pop();
+
+        result.map(|()| EnsureAnswer::AnswerAvailable)
     }
 
     /// Pulls out a new answer from the strand to the [`Table::answers`] list.
@@ -100,13 +116,37 @@ impl Solver<'_> {
                     let result =
                         self.try_pull_next_answer_from_strand(table_id, strand);
 
-                    todo!()
+                    match result {
+                        // new answer has been created, stop now enough progress
+                        // has been made
+                        Ok(PullAnswerFromStrand::NewAnswer) => return Ok(()),
+
+                        // continue processing the next strand
+                        Ok(PullAnswerFromStrand::Stale(_))
+                        | Ok(PullAnswerFromStrand::Progress) => {
+                            continue;
+                        }
+
+                        Err((Error::CyclicDependency, _)) => {
+                            todo!("handle cyclic dependency error")
+                        }
+                        Err((Error::NoMoreSolutions, _)) => {
+                            // this strand can't produce any more answers,
+                            // continue
+                            continue;
+                        }
+                    }
                 }
-                None => todo!(),
+
+                // no more strand to produce answer, no more new answers
+                None => {
+                    return Err(Error::NoMoreSolutions);
+                }
             }
         }
     }
 
+    #[allow(clippy::result_large_err)]
     fn try_pull_next_answer_from_strand(
         &mut self,
         table_id: ID<Table>,
@@ -180,7 +220,7 @@ impl Solver<'_> {
             let mapping = forked.selected_subgoal.canonicalize();
             let mapping = reverse_mapping(&mapping);
 
-            forked.selected_subgoal_state = SubgoalState {
+            forked.selected_subgoal_state = GoalState {
                 answer_index: 0,
                 table_id: self.get_table_id(&forked.selected_subgoal),
                 canonical_mapping: mapping,
@@ -195,53 +235,6 @@ impl Solver<'_> {
 
             Ok(PullAnswerFromStrand::Progress)
         }
-    }
-}
-
-fn reverse_mapping(mapping: &HashMap<usize, usize>) -> HashMap<usize, usize> {
-    mapping.iter().map(|(&k, &v)| (v, k)).collect()
-}
-
-fn uncanonicalize_substitution(
-    canonicalized_substitution: &Substitution,
-    uncanonicalized_mapping: &HashMap<usize, usize>,
-) -> Substitution {
-    fn apply_uncanonicalization(
-        term: &mut Term,
-        uncanonicalized_mapping: &HashMap<usize, usize>,
-    ) {
-        match term {
-            Term::Variable(variable) => {
-                if let Some(&uncanonicalized_var) =
-                    uncanonicalized_mapping.get(variable)
-                {
-                    *term = Term::Variable(uncanonicalized_var);
-                }
-            }
-            Term::Compound(_, terms) => {
-                for subterm in terms {
-                    apply_uncanonicalization(subterm, uncanonicalized_mapping);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    Substitution {
-        mapping: canonicalized_substitution
-            .mapping
-            .iter()
-            .map(|(var, term)| {
-                (uncanonicalized_mapping.get(var).cloned().unwrap_or(*var), {
-                    let mut term = term.clone();
-                    apply_uncanonicalization(
-                        &mut term,
-                        uncanonicalized_mapping,
-                    );
-                    term
-                })
-            })
-            .collect(),
     }
 }
 
@@ -303,7 +296,7 @@ impl Solver<'_> {
 
                 // push a new strand
                 strands.push_back(Strand {
-                    selected_subgoal_state: SubgoalState {
+                    selected_subgoal_state: GoalState {
                         answer_index: 0,
                         table_id: self.get_table_id(&selected_subgoal),
                         canonical_mapping: mapping,
@@ -338,12 +331,5 @@ pub struct Strand {
 
     /// Describes how to pull out the answer from the
     /// [`Self::selected_subgoal`]
-    selected_subgoal_state: SubgoalState,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SubgoalState {
-    answer_index: usize,
-    table_id: ID<Table>,
-    canonical_mapping: HashMap<usize, usize>,
+    selected_subgoal_state: GoalState,
 }
