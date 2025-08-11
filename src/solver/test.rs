@@ -37,7 +37,6 @@ fn simple_fact() {
     assert!(solver.pull_next_goal(&mut goal_state).is_none());
 }
 
-/*
 #[test]
 fn simple_rule() {
     // rule: grandparent(X, Y) :- parent(X, Z), parent(Z, Y).
@@ -88,15 +87,19 @@ fn simple_rule() {
             arguments: vec![Term::atom("alice"), Term::atom("carol")],
         },
     };
-    let mut solver = Solver::new(goal, &kb);
-    let solution = solver.next_solution().unwrap();
+    let mut solver = Solver::new(&kb);
+    let mut goal_state = solver.create_goal_state(goal);
+
+    let solution = solver.pull_next_goal(&mut goal_state).unwrap();
 
     // no inference variable in the query, therefore, the mapping should be
     // empty
-    assert!(solution.mapping.is_empty());
+    assert!(dbg!(solution.mapping).is_empty());
 
-    assert!(solver.next_solution().is_none());
+    assert!(solver.pull_next_goal(&mut goal_state).is_none());
 }
+
+/*
 
 #[test]
 fn inference_multiple_solution() {

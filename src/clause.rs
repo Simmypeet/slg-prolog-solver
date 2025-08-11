@@ -13,6 +13,28 @@ pub struct Goal {
     pub predicate: Predicate,
 }
 
+impl Goal {
+    pub fn max_variable_index(&self) -> Option<usize> {
+        self.predicate
+            .arguments
+            .iter()
+            .filter_map(|term| term.max_variable_index())
+            .max()
+    }
+}
+
+impl Term {
+    pub fn max_variable_index(&self) -> Option<usize> {
+        match self {
+            Term::Atom(_) => None,
+            Term::Variable(id) => Some(*id),
+            Term::Compound(_, terms) => {
+                terms.iter().filter_map(|term| term.max_variable_index()).max()
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Clause {
     pub head: Predicate,

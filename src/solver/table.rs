@@ -34,10 +34,12 @@ pub(super) enum Error {
     CyclicDependency,
 }
 
+#[derive(Debug)]
 enum PullAnswerFromStrandError {
     CyclicDependency(Strand),
 }
 
+#[derive(Debug)]
 enum PullAnswerFromStrand {
     Stale(Strand),
     NewAnswer,
@@ -113,8 +115,9 @@ impl Solver<'_> {
         loop {
             match self.tables.tables[table_id].work_list.pop_front() {
                 Some(strand) => {
-                    let result =
-                        self.try_pull_next_answer_from_strand(table_id, strand);
+                    let result = dbg!(
+                        self.try_pull_next_answer_from_strand(table_id, strand)
+                    );
 
                     match result {
                         // new answer has been created, stop now enough progress
@@ -196,7 +199,7 @@ impl Solver<'_> {
             let mut answer = selected_strand.substitution.clone();
             answer.compose(uncanonicalized_substitution);
 
-            table.answers.push(answer);
+            table.insert_answer(answer);
             table.work_list.push_back(selected_strand);
 
             // New answers have been added, report back to the caller.
@@ -208,8 +211,7 @@ impl Solver<'_> {
             forked.substitution.compose(uncanonicalized_substitution);
 
             // pop the subgoal list
-            forked.selected_subgoal =
-                selected_strand.rest_subgoals.pop_front().unwrap();
+            forked.selected_subgoal = forked.rest_subgoals.pop_front().unwrap();
 
             // apply the substitution
             forked
@@ -259,6 +261,25 @@ pub struct Table {
 
     /// The list of answers that have been found so far.
     answers: Vec<Substitution>,
+
+    /// The canonicalized goal being proven.
+    canonicalized_goal: Goal,
+
+    /// The maximum variable index found in the [`Self::canonicalized_goal`]
+    max_inference_variable_index: Option<usize>,
+}
+
+impl Table {
+    pub fn insert_answer(&mut self, mut answer: Substitution) {
+        if let Some(max_index) = self.max_inference_variable_index {
+            // if the answer has inference variables, we need to filter them out
+            // to avoid storing unnecessary data
+            answer.mapping.retain(|k, _| *k <= max_index);
+            self.answers.push(answer);
+        } else {
+            self.answers.push(Substitution::default());
+        }
+    }
 }
 
 impl Solver<'_> {
@@ -309,7 +330,13 @@ impl Solver<'_> {
             }
         }
 
-        Table { work_list: strands, answers }
+        Table {
+            work_list: strands,
+            answers,
+            canonicalized_goal: canonicalized_goal.clone(),
+            max_inference_variable_index: canonicalized_goal
+                .max_variable_index(),
+        }
     }
 }
 
