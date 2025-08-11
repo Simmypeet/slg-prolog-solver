@@ -2,7 +2,7 @@
 use crate::{
     clause::{Clause, Goal, KnowledgeBase, Predicate},
     solver::Solver,
-    subsitution::Substitution,
+    substitution::Substitution,
     term::Term,
 };
 
@@ -374,7 +374,7 @@ fn recursive_query() {
 }
 
 #[test]
-fn inference_recursive_query() {
+fn enumerate_recursive_query() {
     // Create facts
     let fact1 = Clause {
         head: Predicate {
