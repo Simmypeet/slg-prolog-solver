@@ -117,6 +117,17 @@ impl Substitution {
 
         Some(self)
     }
+
+    /// Composes the `other` substitution into `self`.
+    ///
+    /// Given the `other` substitution and `self` substitution, after applying
+    /// composition, the `self` substitution will be equivalent of
+    /// `other(self(x))`
+    pub fn compose(&mut self, other: Substitution) {
+        for (var, term) in other.mapping {
+            self.insert_mapping(var, term);
+        }
+    }
 }
 
 fn occurs_check(variable: &usize, term: &Term) -> bool {
