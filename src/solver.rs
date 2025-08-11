@@ -28,8 +28,8 @@ use crate::{
     substitution::Substitution,
 };
 
-pub mod stack;
-pub mod table;
+mod stack;
+mod table;
 
 /// A solver is a state-machine allowing the user to query for solutions to a
 /// particular goal
