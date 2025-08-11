@@ -55,9 +55,7 @@ impl KnowledgeBase {
         KnowledgeBase { clauses_by_predicate_name: HashMap::new() }
     }
 
-    pub fn add_clause(&mut self, mut clause: Clause) {
-        clause.canonicalize();
-
+    pub fn add_clause(&mut self, clause: Clause) {
         self.clauses_by_predicate_name
             .entry(clause.head.name.clone())
             .or_default()

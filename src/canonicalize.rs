@@ -14,14 +14,20 @@ impl Goal {
 
 impl Predicate {
     pub fn canonicalize(&mut self) -> HashMap<usize, usize> {
-        let mut counter = 0;
+        self.canonicalize_with_counter(0).1
+    }
+
+    pub fn canonicalize_with_counter(
+        &mut self,
+        mut counter: usize,
+    ) -> (usize, HashMap<usize, usize>) {
         let mut mapping = HashMap::new();
 
         for term in &mut self.arguments {
             term.canonicalize_internal(&mut counter, &mut mapping);
         }
 
-        mapping
+        (counter, mapping)
     }
 }
 

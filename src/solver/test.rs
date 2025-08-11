@@ -101,6 +101,73 @@ fn simple_rule() {
 }
 
 #[test]
+fn enumerate_single_solution() {
+    // rule:
+    // parent(alice, bob).
+    // parent(bob, dave).
+    // grandparent(X, Y) :- parent(X, Z), parent(Z, Y).
+
+    let fact1 = Clause {
+        head: Predicate {
+            name: "parent".to_string(),
+            arguments: vec![Term::atom("alice"), Term::atom("bob")],
+        },
+        body: vec![],
+    };
+
+    let fact2 = Clause {
+        head: Predicate {
+            name: "parent".to_string(),
+            arguments: vec![Term::atom("bob"), Term::atom("dave")],
+        },
+        body: vec![],
+    };
+
+    let grandparent_rule = Clause {
+        head: Predicate {
+            name: "grandparent".to_string(),
+            arguments: vec![Term::variable(0), Term::variable(1)],
+        },
+        body: vec![
+            Goal {
+                predicate: Predicate {
+                    name: "parent".to_string(),
+                    arguments: vec![Term::variable(0), Term::variable(2)],
+                },
+            },
+            Goal {
+                predicate: Predicate {
+                    name: "parent".to_string(),
+                    arguments: vec![Term::variable(2), Term::variable(1)],
+                },
+            },
+        ],
+    };
+
+    let mut kb = KnowledgeBase::new();
+    kb.add_clause(fact1);
+    kb.add_clause(fact2);
+    kb.add_clause(grandparent_rule);
+
+    let query = Goal {
+        predicate: Predicate {
+            name: "grandparent".to_string(),
+            arguments: vec![Term::atom("alice"), Term::variable(0)],
+        },
+    };
+
+    let mut solver = Solver::new(&kb);
+    let mut goal_state = solver.create_goal_state(query);
+
+    let queried_solution = solver.pull_next_goal(&mut goal_state).unwrap();
+
+    assert!(solver.pull_next_goal(&mut goal_state).is_none());
+
+    assert_eq!(queried_solution.mapping.len(), 1);
+    assert_eq!(queried_solution.mapping.get(&0), Some(&Term::atom("dave")));
+}
+
+#[test]
 fn enumerate_multiple_solution() {
     // rule:
     // parent(bob, carol).

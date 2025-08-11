@@ -115,9 +115,8 @@ impl Solver<'_> {
         loop {
             match self.tables.tables[table_id].work_list.pop_front() {
                 Some(strand) => {
-                    let result = dbg!(
-                        self.try_pull_next_answer_from_strand(table_id, strand)
-                    );
+                    let result =
+                        self.try_pull_next_answer_from_strand(table_id, strand);
 
                     match result {
                         // new answer has been created, stop now enough progress
@@ -294,24 +293,31 @@ impl Solver<'_> {
 
         let mut answers = Vec::new();
         let mut strands = VecDeque::new();
+        let max_inference_variable_index =
+            canonicalized_goal.max_variable_index();
 
         // find the applicable clause to create a new stand.
-        for clause in clauses.into_iter().flatten().cloned() {
+        for clause in clauses.into_iter().flatten() {
             // check if the clause is applicable
+
+            let mut clause = clause.clone();
+            clause.canonicalize_with_counter(
+                max_inference_variable_index.map_or(0, |x| x + 1),
+            );
+
             let Some(substitution) = Substitution::default()
                 .unify_predicate(&canonicalized_goal.predicate, &clause.head)
             else {
                 continue;
             };
 
-            // it's a fact, directly put it to the answer
             if clause.body.is_empty() {
                 answers.push(substitution);
             } else {
                 // select the first subgoal as the selected subgoal right away
                 let mut selected_subgoal = clause.body[0].clone();
-                substitution.apply_predicate(&mut selected_subgoal.predicate);
 
+                substitution.apply_predicate(&mut selected_subgoal.predicate);
                 let mapping = selected_subgoal.canonicalize();
                 let mapping = reverse_mapping(&mapping);
 
