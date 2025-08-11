@@ -1,13 +1,11 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    sync::mpsc::Receiver,
-};
+use std::collections::{HashMap, VecDeque};
 
 use crate::{
     arena::{Arena, ID},
     clause::{Goal, KnowledgeBase},
     solver::Solver,
     substitution::Substitution,
+    term::Term,
 };
 
 /// Manages the SLG tables for the solver.
@@ -36,6 +34,14 @@ enum Error {
     CyclicDependency,
 }
 
+enum PullAnswerFromStrandError {
+    CyclicDependency(Strand),
+}
+
+enum PullAnswerFromStrand {
+    Stale(Strand),
+}
+
 impl Solver<'_> {
     /// Gets an ID to the table for the given goal.
     ///
@@ -49,7 +55,7 @@ impl Solver<'_> {
         }
 
         let new_table =
-            self.create_table(&self.knowledge_base, &canonicalized_goal);
+            self.create_table(self.knowledge_base, canonicalized_goal);
 
         let id = self.tables.tables.insert(new_table);
         self.tables.table_ids_by_goal.insert(canonicalized_goal.clone(), id);
@@ -86,11 +92,14 @@ impl Solver<'_> {
 
     /// Pulls out a new answer from the strand to the [`Table::answers`] list.
     fn pull_next_answer(&mut self, table_id: ID<Table>) -> Result<(), Error> {
-        let table = &mut self.tables.tables[table_id];
-
         loop {
-            match table.work_list.pop_front() {
-                Some(strand) => {}
+            match self.tables.tables[table_id].work_list.pop_front() {
+                Some(strand) => {
+                    let result =
+                        self.try_pull_next_answer_from_strand(table_id, strand);
+
+                    todo!()
+                }
                 None => todo!(),
             }
         }
@@ -100,13 +109,86 @@ impl Solver<'_> {
         &mut self,
         table_id: ID<Table>,
         selected_strand: Strand,
-    ) -> Result<(), Error> {
-        todo!()
+    ) -> Result<PullAnswerFromStrand, (Error, Strand)> {
+        match self.ensure_answer(
+            selected_strand.selected_subgoal_state.table_id,
+            selected_strand.selected_subgoal_state.answer_index,
+        ) {
+            Ok(EnsureAnswer::AnswerAvailable) => {}
+
+            Err(Error::CyclicDependency) => {
+                // propagate the cyclic dependency error
+                return Err((Error::NoMoreSolutions, selected_strand));
+            }
+
+            // if the answer is not available, this strand will be dropped,
+            // e.g. removed from the table
+            Err(Error::NoMoreSolutions) => {
+                return Ok(PullAnswerFromStrand::Stale(selected_strand));
+            }
+        };
+
+        // if reaches here, it means that the answer at the
+        // `selected_strand.selected_subgoal_state` exists
+
+        let pulled_answer = self.tables.tables[table_id].answers
+            [selected_strand.selected_subgoal_state.answer_index]
+            .clone();
+
+        let uncanonicalized_substitution = uncanonicalize_substitution(
+            &pulled_answer,
+            &selected_strand.selected_subgoal_state.canonical_mapping,
+        );
+
+        // compose the final substitution
     }
 }
 
 fn reverse_mapping(mapping: &HashMap<usize, usize>) -> HashMap<usize, usize> {
     mapping.iter().map(|(&k, &v)| (v, k)).collect()
+}
+
+fn uncanonicalize_substitution(
+    canonicalized_substitution: &Substitution,
+    uncanonicalized_mapping: &HashMap<usize, usize>,
+) -> Substitution {
+    fn apply_uncanonicalization(
+        term: &mut Term,
+        uncanonicalized_mapping: &HashMap<usize, usize>,
+    ) {
+        match term {
+            Term::Variable(variable) => {
+                if let Some(&uncanonicalized_var) =
+                    uncanonicalized_mapping.get(variable)
+                {
+                    *term = Term::Variable(uncanonicalized_var);
+                }
+            }
+            Term::Compound(_, terms) => {
+                for subterm in terms {
+                    apply_uncanonicalization(subterm, uncanonicalized_mapping);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Substitution {
+        mapping: canonicalized_substitution
+            .mapping
+            .iter()
+            .map(|(var, term)| {
+                (uncanonicalized_mapping.get(var).cloned().unwrap_or(*var), {
+                    let mut term = term.clone();
+                    apply_uncanonicalization(
+                        &mut term,
+                        uncanonicalized_mapping,
+                    );
+                    term
+                })
+            })
+            .collect(),
+    }
 }
 
 /// Represents a "goal to prove" aspect of the SLG solver.
@@ -167,7 +249,7 @@ impl Solver<'_> {
 
                 // push a new strand
                 strands.push_back(Strand {
-                    subgoal_state: SubgoalState {
+                    selected_subgoal_state: SubgoalState {
                         answer_index: 0,
                         table_id: self.get_table_id(&selected_subgoal),
                         canonical_mapping: mapping,
@@ -191,7 +273,7 @@ impl Solver<'_> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Strand {
     /// The rest of the subgoals that must be proven after the
-    /// [`Self::current_subgoal`] finishes.
+    /// [`Self::selected_subgoal`] finishes.
     rest_subgoals: VecDeque<Goal>,
 
     /// The current subgoal being proven.
@@ -200,8 +282,9 @@ pub struct Strand {
     /// The substitution built so far for this strand.
     substitution: Substitution,
 
-    /// Describes how to pull out the answer from the [`Self::current_subgoal`]
-    subgoal_state: SubgoalState,
+    /// Describes how to pull out the answer from the
+    /// [`Self::selected_subgoal`]
+    selected_subgoal_state: SubgoalState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
