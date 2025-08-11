@@ -456,8 +456,6 @@ fn recursive_query() {
     assert!(solution1.mapping.is_empty());
 }
 
-/*
-
 #[test]
 fn enumerate_recursive_query() {
     // Create facts
@@ -519,15 +517,14 @@ fn enumerate_recursive_query() {
         },
     };
 
-    let mut solver = Solver::new(query, &kb);
+    let mut solver = Solver::new(&kb);
+    let mut goal_state = solver.create_goal_state(query);
 
     // Collect all solutions
     let mut solutions = Vec::new();
-    while let Some(solution) = solver.next_solution() {
+    while let Some(solution) = solver.pull_next_goal(&mut goal_state) {
         solutions.push(solution);
     }
-
-    dbg!(&solutions);
 
     // Should have 3 solutions: ?0 = b, c, d
     assert_eq!(solutions.len(), 3);
@@ -546,4 +543,3 @@ fn enumerate_recursive_query() {
         );
     }
 }
-*/

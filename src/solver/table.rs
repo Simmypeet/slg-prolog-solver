@@ -192,22 +192,16 @@ impl Solver<'_> {
         match current_dfn.cmp(&cyclic_counter) {
             std::cmp::Ordering::Less => {
                 // negative cyclic dependency
-                println!("negative cyclic dependency");
-
                 Error::NegativeCyclicDependency
             }
 
             std::cmp::Ordering::Equal => {
-                println!("no more solutions");
-
                 self.clear_strands_after_cycle(current_table, cylic_strands);
 
                 Error::NoMoreSolutions
             }
 
             std::cmp::Ordering::Greater => {
-                println!("positive cyclic dependency");
-
                 self.tables.tables[current_table]
                     .work_list
                     .extend(cylic_strands);
