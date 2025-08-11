@@ -4,7 +4,7 @@ use crate::{
     arena::{Arena, ID},
     canonicalize::{reverse_mapping, uncanonicalize_substitution},
     clause::{Goal, KnowledgeBase},
-    solver::{GoalState, Solver},
+    solver::{GoalState, Solver, stack::DepthFirstNumber},
     substitution::Substitution,
 };
 
@@ -31,17 +31,13 @@ pub(super) enum EnsureAnswer {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) enum Error {
     NoMoreSolutions,
-    CyclicDependency,
-}
-
-#[derive(Debug)]
-enum PullAnswerFromStrandError {
-    CyclicDependency(Strand),
+    PositiveCyclicDependency(DepthFirstNumber),
+    NegativeCyclicDependency,
 }
 
 #[derive(Debug)]
 enum PullAnswerFromStrand {
-    Stale(Strand),
+    Stale,
     NewAnswer,
     Progress,
 }
@@ -95,15 +91,17 @@ impl Solver<'_> {
         // to process a new strand.
         assert!(table.answers.len() == answer_index);
 
-        if self.stack.is_active(table_id).is_some() {
+        if let Some(counter) = self.stack.is_active(table_id) {
             // if the table is already active, we cannot process it again
-            return Err(Error::CyclicDependency);
+            return Err(Error::PositiveCyclicDependency(
+                self.stack[counter].depth_first_number,
+            ));
         }
 
-        self.stack.push(table_id);
+        let stack_index = self.stack.push(table_id);
 
         // pull the next answer from the strand
-        let result = self.pull_next_answer(table_id);
+        let result = self.pull_next_answer(table_id, stack_index);
 
         self.stack.pop();
 
@@ -111,7 +109,14 @@ impl Solver<'_> {
     }
 
     /// Pulls out a new answer from the strand to the [`Table::answers`] list.
-    fn pull_next_answer(&mut self, table_id: ID<Table>) -> Result<(), Error> {
+    fn pull_next_answer(
+        &mut self,
+        table_id: ID<Table>,
+        stack_index: usize,
+    ) -> Result<(), Error> {
+        let mut cyclic_counter = DepthFirstNumber::MAX;
+        let mut delayed_strands = Vec::new();
+
         loop {
             match self.tables.tables[table_id].work_list.pop_front() {
                 Some(strand) => {
@@ -121,17 +126,34 @@ impl Solver<'_> {
                     match result {
                         // new answer has been created, stop now enough progress
                         // has been made
-                        Ok(PullAnswerFromStrand::NewAnswer) => return Ok(()),
+                        Ok(PullAnswerFromStrand::NewAnswer) => {
+                            // push the cyclic dependency found back for further
+                            // processing
+                            self.tables.tables[table_id]
+                                .work_list
+                                .extend(delayed_strands);
+
+                            return Ok(());
+                        }
 
                         // continue processing the next strand
-                        Ok(PullAnswerFromStrand::Stale(_))
+                        Ok(PullAnswerFromStrand::Stale)
                         | Ok(PullAnswerFromStrand::Progress) => {
                             continue;
                         }
 
-                        Err((Error::CyclicDependency, _)) => {
-                            todo!("handle cyclic dependency error")
+                        Err((Error::NegativeCyclicDependency, _)) => {
+                            return Err(Error::NegativeCyclicDependency);
                         }
+
+                        Err((
+                            Error::PositiveCyclicDependency(counter),
+                            strand,
+                        )) => {
+                            delayed_strands.push(strand);
+                            cyclic_counter = counter.min(cyclic_counter);
+                        }
+
                         Err((Error::NoMoreSolutions, _)) => {
                             // this strand can't produce any more answers,
                             // continue
@@ -142,9 +164,67 @@ impl Solver<'_> {
 
                 // no more strand to produce answer, no more new answers
                 None => {
-                    return Err(Error::NoMoreSolutions);
+                    if delayed_strands.is_empty() {
+                        return Err(Error::NoMoreSolutions);
+                    }
+
+                    return Err(self.cyclic(
+                        delayed_strands,
+                        cyclic_counter,
+                        stack_index,
+                    ));
                 }
             }
+        }
+    }
+
+    fn cyclic(
+        &mut self,
+        cylic_strands: Vec<Strand>,
+        cyclic_counter: DepthFirstNumber,
+        stack_index: usize,
+    ) -> Error {
+        let current_table = self.stack[stack_index].table;
+        let current_dfn = self.stack[stack_index].depth_first_number;
+
+        match current_dfn.cmp(&cyclic_counter) {
+            std::cmp::Ordering::Less => {
+                // negative cyclic dependency
+                Error::NegativeCyclicDependency
+            }
+
+            std::cmp::Ordering::Equal => {
+                self.clear_strands_after_cycle(current_table, cylic_strands);
+
+                Error::NoMoreSolutions
+            }
+
+            std::cmp::Ordering::Greater => {
+                self.tables.tables[current_table]
+                    .work_list
+                    .extend(cylic_strands);
+
+                Error::PositiveCyclicDependency(cyclic_counter)
+            }
+        }
+    }
+
+    fn clear_strands_after_cycle(
+        &mut self,
+        table_id: ID<Table>,
+        strands: impl IntoIterator<Item = Strand>,
+    ) {
+        assert!(self.tables.tables[table_id].work_list.is_empty());
+
+        for strand in strands {
+            let selected_strand_table_id =
+                strand.selected_subgoal_state.table_id;
+
+            let strands = std::mem::take(
+                &mut self.tables.tables[selected_strand_table_id].work_list,
+            );
+
+            self.clear_strands_after_cycle(selected_strand_table_id, strands);
         }
     }
 
@@ -160,15 +240,23 @@ impl Solver<'_> {
         ) {
             Ok(EnsureAnswer::AnswerAvailable) => {}
 
-            Err(Error::CyclicDependency) => {
+            Err(Error::PositiveCyclicDependency(counter)) => {
                 // propagate the cyclic dependency error
-                return Err((Error::NoMoreSolutions, selected_strand));
+                return Err((
+                    Error::PositiveCyclicDependency(counter),
+                    selected_strand,
+                ));
+            }
+
+            Err(Error::NegativeCyclicDependency) => {
+                // propagate the negative cyclic dependency error
+                return Err((Error::NegativeCyclicDependency, selected_strand));
             }
 
             // if the answer is not available, this strand will be dropped,
             // e.g. removed from the table
             Err(Error::NoMoreSolutions) => {
-                return Ok(PullAnswerFromStrand::Stale(selected_strand));
+                return Ok(PullAnswerFromStrand::Stale);
             }
         };
 
