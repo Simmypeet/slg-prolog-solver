@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 
 use crate::{
-    arena::{Arena, ID},
+    arena::{Arena, ID, state},
     canonicalize::{reverse_mapping, uncanonicalize_substitution},
     clause::{Goal, KnowledgeBase},
     solver::{GoalState, Solver, stack::DepthFirstNumber},
@@ -13,7 +13,7 @@ use crate::{
 /// Maps between [`Goal`] to the [`ID<Table>`].
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Tables {
-    tables: Arena<Table>,
+    tables: Arena<Table, state::Default>,
     table_ids_by_goal: HashMap<Goal, ID<Table>>,
 }
 
@@ -54,11 +54,13 @@ impl Solver<'_> {
             return *table_id;
         }
 
+        let id = ID::new(self.tables.table_ids_by_goal.len() as u64);
+        self.tables.table_ids_by_goal.insert(canonicalized_goal.clone(), id);
+
         let new_table =
             self.create_table(self.knowledge_base, canonicalized_goal);
 
-        let id = self.tables.tables.insert(new_table);
-        self.tables.table_ids_by_goal.insert(canonicalized_goal.clone(), id);
+        self.tables.tables.insert_with_id(id, new_table).unwrap();
 
         id
     }
@@ -190,16 +192,22 @@ impl Solver<'_> {
         match current_dfn.cmp(&cyclic_counter) {
             std::cmp::Ordering::Less => {
                 // negative cyclic dependency
+                println!("negative cyclic dependency");
+
                 Error::NegativeCyclicDependency
             }
 
             std::cmp::Ordering::Equal => {
+                println!("no more solutions");
+
                 self.clear_strands_after_cycle(current_table, cylic_strands);
 
                 Error::NoMoreSolutions
             }
 
             std::cmp::Ordering::Greater => {
+                println!("positive cyclic dependency");
+
                 self.tables.tables[current_table]
                     .work_list
                     .extend(cylic_strands);
@@ -286,11 +294,15 @@ impl Solver<'_> {
             let mut answer = selected_strand.substitution.clone();
             answer.compose(uncanonicalized_substitution);
 
-            table.insert_answer(answer);
+            let added = table.insert_answer(answer);
             table.work_list.push_back(selected_strand);
 
             // New answers have been added, report back to the caller.
-            Ok(PullAnswerFromStrand::NewAnswer)
+            Ok(if added {
+                PullAnswerFromStrand::NewAnswer
+            } else {
+                PullAnswerFromStrand::Progress
+            })
         } else {
             let mut forked = selected_strand.clone();
 
@@ -357,15 +369,24 @@ pub struct Table {
 }
 
 impl Table {
-    pub fn insert_answer(&mut self, mut answer: Substitution) {
-        if let Some(max_index) = self.max_inference_variable_index {
-            // if the answer has inference variables, we need to filter them out
-            // to avoid storing unnecessary data
-            answer.mapping.retain(|k, _| *k <= max_index);
-            self.answers.push(answer);
-        } else {
-            self.answers.push(Substitution::default());
+    pub fn insert_answer(&mut self, mut answer: Substitution) -> bool {
+        let answer_to_add =
+            if let Some(max_index) = self.max_inference_variable_index {
+                // if the answer has inference variables, we need to filter them
+                // out to avoid storing unnecessary data
+                answer.mapping.retain(|k, _| *k <= max_index);
+                answer
+            } else {
+                Substitution::default()
+            };
+
+        // check if the answer is already present
+        if self.answers.contains(&answer_to_add) {
+            return false;
         }
+
+        self.answers.push(answer_to_add);
+        true
     }
 }
 

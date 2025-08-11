@@ -385,8 +385,6 @@ fn no_solution() {
     assert!(solution.is_none());
 }
 
-/*
-
 #[test]
 fn recursive_query() {
     // Create facts
@@ -447,14 +445,18 @@ fn recursive_query() {
         },
     };
 
-    let mut solver = Solver::new(query.clone(), &kb);
+    let mut solver = Solver::new(&kb);
+    let mut goal_state = solver.create_goal_state(query);
 
     // Collect all solutions
-    let solution1 = solver.next_solution().unwrap();
-    assert_eq!(solver.next_solution(), None);
+    let solution1 = solver.pull_next_goal(&mut goal_state).unwrap();
+
+    assert_eq!(solver.pull_next_goal(&mut goal_state), None);
 
     assert!(solution1.mapping.is_empty());
 }
+
+/*
 
 #[test]
 fn enumerate_recursive_query() {
