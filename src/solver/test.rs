@@ -157,10 +157,8 @@ fn enumerate_multiple_solution() {
     assert!(expecteds.contains(&queried_solution_2));
 }
 
-/*
-
 #[test]
-fn inference_multiple_nested_solution() {
+fn enumerate_multiple_nested_solution() {
     // facts:
     // parent(bob, alice).
     // parent(alice, dave).
@@ -246,10 +244,13 @@ fn inference_multiple_nested_solution() {
         },
     };
 
-    let mut solver = Solver::new(grandparent_query, &kb);
-    let solution1 = solver.next_solution().unwrap();
-    let solution2 = solver.next_solution().unwrap();
-    assert_eq!(solver.next_solution(), None);
+    let mut solver = Solver::new(&kb);
+    let mut goal_state = solver.create_goal_state(grandparent_query);
+
+    let solution1 = solver.pull_next_goal(&mut goal_state).unwrap();
+    let solution2 = solver.pull_next_goal(&mut goal_state).unwrap();
+
+    assert_eq!(solver.pull_next_goal(&mut goal_state), None);
 
     let expected_grandparent_solutions = [
         Substitution {
@@ -275,9 +276,11 @@ fn inference_multiple_nested_solution() {
         },
     };
 
-    let mut solver = Solver::new(great_grandparent_query, &kb);
-    let solution = solver.next_solution().unwrap();
-    assert!(solver.next_solution().is_none());
+    let mut goal_state = solver.create_goal_state(great_grandparent_query);
+
+    let solution = solver.pull_next_goal(&mut goal_state).unwrap();
+
+    assert!(solver.pull_next_goal(&mut goal_state).is_none());
 
     let expected_great_grandparent_solution = Substitution {
         mapping: [(0, Term::atom("bob")), (1, Term::atom("carol"))]
@@ -287,6 +290,8 @@ fn inference_multiple_nested_solution() {
 
     assert_eq!(solution, expected_great_grandparent_solution);
 }
+
+/*
 
 #[test]
 fn no_solution() {
