@@ -358,8 +358,6 @@ fn enumerate_multiple_nested_solution() {
     assert_eq!(solution, expected_great_grandparent_solution);
 }
 
-/*
-
 #[test]
 fn no_solution() {
     // fact: parent(alice, bob).
@@ -379,10 +377,15 @@ fn no_solution() {
             arguments: vec![Term::atom("bob"), Term::atom("alice")],
         },
     };
-    let mut solver = Solver::new(goal, &kb);
-    let solution = solver.next_solution();
+    let mut solver = Solver::new(&kb);
+    let mut goal_state = solver.create_goal_state(goal);
+
+    let solution = solver.pull_next_goal(&mut goal_state);
+
     assert!(solution.is_none());
 }
+
+/*
 
 #[test]
 fn recursive_query() {
