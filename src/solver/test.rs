@@ -2,6 +2,7 @@
 use crate::{
     clause::{Clause, Goal, KnowledgeBase, Predicate},
     solver::Solver,
+    substitution::Substitution,
     term::Term,
 };
 
@@ -99,10 +100,8 @@ fn simple_rule() {
     assert!(solver.pull_next_goal(&mut goal_state).is_none());
 }
 
-/*
-
 #[test]
-fn inference_multiple_solution() {
+fn enumerate_multiple_solution() {
     // rule:
     // parent(bob, carol).
     // parent(alice, dave).
@@ -133,12 +132,13 @@ fn inference_multiple_solution() {
         },
     };
 
-    let mut solver = Solver::new(query, &kb);
+    let mut solver = Solver::new(&kb);
+    let mut goal_state = solver.create_goal_state(query);
 
-    let queried_solution_1 = solver.next_solution().unwrap();
-    let queried_solution_2 = solver.next_solution().unwrap();
+    let queried_solution_1 = solver.pull_next_goal(&mut goal_state).unwrap();
+    let queried_solution_2 = solver.pull_next_goal(&mut goal_state).unwrap();
 
-    assert!(solver.next_solution().is_none());
+    assert!(solver.pull_next_goal(&mut goal_state).is_none());
 
     let expecteds = [
         Substitution {
@@ -156,6 +156,8 @@ fn inference_multiple_solution() {
     assert!(expecteds.contains(&queried_solution_1));
     assert!(expecteds.contains(&queried_solution_2));
 }
+
+/*
 
 #[test]
 fn inference_multiple_nested_solution() {
