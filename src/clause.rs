@@ -9,7 +9,7 @@ pub struct Predicate {
 }
 
 impl Predicate {
-    pub fn canonicalize(&mut self) -> usize {
+    pub fn canonicalize(&mut self) -> HashMap<usize, usize> {
         let mut counter = 0;
         let mut mapping = HashMap::new();
 
@@ -17,7 +17,7 @@ impl Predicate {
             term.canonicalize_internal(&mut counter, &mut mapping);
         }
 
-        counter
+        mapping
     }
 }
 
@@ -27,7 +27,9 @@ pub struct Goal {
 }
 
 impl Goal {
-    pub fn canonicalize(&mut self) -> usize { self.predicate.canonicalize() }
+    pub fn canonicalize(&mut self) -> HashMap<usize, usize> {
+        self.predicate.canonicalize()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
