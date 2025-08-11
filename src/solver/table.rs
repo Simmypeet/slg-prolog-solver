@@ -40,6 +40,8 @@ enum PullAnswerFromStrandError {
 
 enum PullAnswerFromStrand {
     Stale(Strand),
+    NewAnswer,
+    Progress,
 }
 
 impl Solver<'_> {
@@ -108,7 +110,7 @@ impl Solver<'_> {
     fn try_pull_next_answer_from_strand(
         &mut self,
         table_id: ID<Table>,
-        selected_strand: Strand,
+        mut selected_strand: Strand,
     ) -> Result<PullAnswerFromStrand, (Error, Strand)> {
         match self.ensure_answer(
             selected_strand.selected_subgoal_state.table_id,
@@ -131,8 +133,9 @@ impl Solver<'_> {
         // if reaches here, it means that the answer at the
         // `selected_strand.selected_subgoal_state` exists
 
-        let pulled_answer = self.tables.tables[table_id].answers
-            [selected_strand.selected_subgoal_state.answer_index]
+        let pulled_answer = self.tables.tables
+            [selected_strand.selected_subgoal_state.table_id]
+            .answers[selected_strand.selected_subgoal_state.answer_index]
             .clone();
 
         let uncanonicalized_substitution = uncanonicalize_substitution(
@@ -140,7 +143,58 @@ impl Solver<'_> {
             &selected_strand.selected_subgoal_state.canonical_mapping,
         );
 
-        // compose the final substitution
+        // here, we'll "fork" the strand, the current "selected_strand" will
+        // pursue the next answer of the current selected subgoal, whereas the
+        // `next_strand` will drop the current selected subgoal and pull a new
+        // subgoal to prove from the work list.
+        selected_strand.selected_subgoal_state.answer_index += 1;
+
+        // no more subgoal left to prove, push to the answer list.
+        if selected_strand.rest_subgoals.is_empty() {
+            let table = &mut self.tables.tables[table_id];
+
+            let mut answer = selected_strand.substitution.clone();
+            answer.compose(uncanonicalized_substitution);
+
+            table.answers.push(answer);
+            table.work_list.push_back(selected_strand);
+
+            // New answers have been added, report back to the caller.
+            Ok(PullAnswerFromStrand::NewAnswer)
+        } else {
+            let mut forked = selected_strand.clone();
+
+            // compose a new substitution
+            forked.substitution.compose(uncanonicalized_substitution);
+
+            // pop the subgoal list
+            forked.selected_subgoal =
+                selected_strand.rest_subgoals.pop_front().unwrap();
+
+            // apply the substitution
+            forked
+                .substitution
+                .apply_predicate(&mut forked.selected_subgoal.predicate);
+
+            // canonicalize the new subgoal
+            let mapping = forked.selected_subgoal.canonicalize();
+            let mapping = reverse_mapping(&mapping);
+
+            forked.selected_subgoal_state = SubgoalState {
+                answer_index: 0,
+                table_id: self.get_table_id(&forked.selected_subgoal),
+                canonical_mapping: mapping,
+            };
+
+            // push the forked strand and the parent strand to the work lit
+            let table = &mut self.tables.tables[table_id];
+
+            // make sure a new forked strand is processed first.
+            table.work_list.push_back(forked);
+            table.work_list.push_back(selected_strand);
+
+            Ok(PullAnswerFromStrand::Progress)
+        }
     }
 }
 
